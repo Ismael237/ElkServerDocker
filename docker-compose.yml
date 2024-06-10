@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  mysql:
+    container_name: wp-mysql
+    image: mysql:8.3 
+    restart: always
+    volumes:
+      - ./mysql/data:/var/lib/mysql/
+    environment:
+      - MYSQL_DATABASE=wordpress
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_USER=wordpress
+      - MYSQL_PASSWORD=wordpress
+    networks:
+      - wp-network
+    
+  wordpress:
+    depends_on:
+      - mysql
+    container_name: wordpress
+    image: wordpress:php8.3-fpm-alpine
+    volumes:
+      - ./wordpress/data:/var/www/html
+    environment:
+      - WORDPRESS_DB_HOST=mysql:3306
+      - WORDPRESS_DB_USER=wordpress
+      - WORDPRESS_DB_PASSWORD=wordpress
+      - WORDPRESS_DB_NAME=wordpress
+    networks:
+      - wp-network
+    links:
+      - mysql
+
+  nginx-fpm:
+    depends_on:
+      - wordpress
+    container_name: wp-nginx-fpm
+    image: nginx:alpine3.18-slim
+    restart: unless-stopped
+    volumes:
+      - ./wordpress/data:/var/www/html
+      - ./nginx/config:/etc/nginx/conf.d
+      - ./nginx/logs:/var/log/nginx
+    networks:
+      - wp-network
+      - elk
+    ports:
+      - 9000:80
+    links:
+      - wordpress
+
+  phpMyAdmin:
+    depends_on: 
+      - mysql
+    container_name: wp-phpMyAdmin
+    image: phpmyadmin:5.2.1
+    environment:
+      - PMA_HOST=mysql
+      - PMA_PORT=3306
+    restart: always
+    networks:
+      - wp-network
+    ports:
+      - 8080:80
+
+  elasticsearch:
+    image: elasticsearch:8.13.0
+    container_name: elasticsearch
+    environment:
+      - node.name=elasticsearch
+      - cluster.name=elk-cluster
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - network.bind_host=0.0.0.0
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - ./elasticsearch/data:/usr/share/elasticsearch/data:Z
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - elk
+
+  logstash:
+    image: logstash:8.13.0
+    container_name: logstash
+    environment:
+      - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
+      - ./nginx/logs:/var/log/nginx
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: kibana:8.13.0
+    container_name: kibana
+    volumes:
+     - ./kibana/config/kibana.yml:/usr/share/kibana/config/kibana.yml:ro,Z
+    ports:
+      - "5601:5601"
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+
+networks:
+  elk:
+    driver: bridge
+  wp-network:
+    name: wp-network

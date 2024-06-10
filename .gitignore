@@ -1,0 +1,4 @@
+/wordpress/data
+/nginx/logs
+/mysql/data
+/elasticsearch/data
